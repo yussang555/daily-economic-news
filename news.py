@@ -1,16 +1,22 @@
 import os
 import requests
+import re
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 
 # ==========================================
-# GitHub Secrets 설정
+# 1. 환경 설정 및 키워드 지정 (대장님 맞춤형)
+# ==========================================
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+
+# 받고 싶은 키워드를 이 리스트에 넣으세요. 
+# 영문은 대소문자 구분 없이 작동하도록 설계했습니다.
+KEYWORDS = ["나스닥", "S&P500", "미국채", "금리", "부동산", "국채", "전쟁", "환율", "유가", "AI", "코스피", "반도체", "연준"]
 # ==========================================
 
 def get_news():
-    """기사 번호만 추출해서 본문으로 바로 꽂히는 링크를 만듭니다."""
+    """뉴스 목록을 긁어와서 키워드와 매칭되는 것만 골라냅니다."""
     url = "https://finance.naver.com/news/news_list.naver?mode=RANK"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
@@ -20,42 +26,46 @@ def get_news():
         response = requests.get(url, headers=headers)
         soup = BeautifulSoup(response.text, 'html.parser')
         
+        # 랭킹 뉴스 목록 수집 (범위를 더 넓혀서 20개 중 키워드를 찾습니다)
         news_items = soup.select('.simpleNewsList li')
         
-        news_results = []
-        for idx, item in enumerate(news_items[:5], 1):
+        filtered_news = []
+        count = 1
+        
+        for item in news_items[:20]: # 더 많은 뉴스 중에서 키워드를 검색합니다.
             a_tag = item.select_one('a')
             if a_tag:
                 title = a_tag.text.strip()
-                link = a_tag['href']
                 
-                # 링크에서 기사 번호와 언론사 번호만 추출해서 재조립 (목록 튕김 방지)
-                # 예: /news/news_read.naver?article_id=000123&office_id=011...
-                final_link = "https://n.news.naver.com/mnews/article/"
-                
-                import re
-                office_id = re.search(r'office_id=(\d+)', link)
-                article_id = re.search(r'article_id=(\d+)', link)
-                
-                if office_id and article_id:
-                    # 네이버 모바일 통합 뉴스 주소로 변환
-                    direct_link = f"{final_link}{office_id.group(1)}/{article_id.group(1)}"
-                    news_results.append(f"{idx}. {title}\n🔗 {direct_link}")
-                else:
-                    # 추출 실패 시 기본 링크라도 제공
-                    news_results.append(f"{idx}. {title}\n🔗 https://finance.naver.com{link}")
+                # 키워드 매칭 검사 (하나라도 포함되면 수집)
+                if any(kw.lower() in title.lower() for kw in KEYWORDS):
+                    link = a_tag['href']
+                    
+                    # 다이렉트 링크 생성 (지난번 성공한 로직 그대로 유지)
+                    office_id = re.search(r'office_id=(\d+)', link)
+                    article_id = re.search(r'article_id=(\d+)', link)
+                    
+                    if office_id and article_id:
+                        direct_link = f"https://n.news.naver.com/mnews/article/{office_id.group(1)}/{article_id.group(1)}"
+                        filtered_news.append(f"{count}. {title}\n🔗 {direct_link}")
+                        count += 1
             
-        return "\n\n".join(news_results)
+        return "\n\n".join(filtered_news)
     
     except Exception as e:
         return f"뉴스 수집 중 오류 발생: {e}"
 
 def send_telegram(text):
-    """한국 시간 기준 전송"""
+    """결과가 있을 때만 텔레그램 전송"""
+    # 키워드에 맞는 뉴스가 없으면 전송하지 않음 (대장님의 휴식 보장)
+    if not text:
+        print("매칭되는 키워드 뉴스가 없습니다.")
+        return False
+
     kst_now = datetime.utcnow() + timedelta(hours=9)
     today_str = kst_now.strftime("%Y년 %m월 %d일")
     
-    message = f"📢 {today_str} 아침 경제 브리핑\n\n{text}"
+    message = f"🎯 {today_str} 대장님 맞춤 경제 브리핑\n\n[설정 키워드: {', '.join(KEYWORDS)}]\n\n{text}"
     
     send_url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {
