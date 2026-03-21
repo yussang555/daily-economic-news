@@ -10,8 +10,7 @@ CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 # ==========================================
 
 def get_news():
-    """가장 안정적인 네이버 금융 뉴스 페이지를 수집합니다."""
-    # 구조가 비교적 고정된 '많이 본 뉴스' 페이지 활용
+    """기사 번호만 추출해서 본문으로 바로 꽂히는 링크를 만듭니다."""
     url = "https://finance.naver.com/news/news_list.naver?mode=RANK"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
@@ -21,19 +20,30 @@ def get_news():
         response = requests.get(url, headers=headers)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # 뉴스 항목들 찾기
         news_items = soup.select('.simpleNewsList li')
         
-        if not news_items:
-            return "뉴스를 수집하지 못했습니다. 페이지 구조를 확인해주세요."
-
         news_results = []
         for idx, item in enumerate(news_items[:5], 1):
             a_tag = item.select_one('a')
             if a_tag:
                 title = a_tag.text.strip()
-                link = "https://finance.naver.com" + a_tag['href']
-                news_results.append(f"{idx}. {title}\n🔗 {link}")
+                link = a_tag['href']
+                
+                # 링크에서 기사 번호와 언론사 번호만 추출해서 재조립 (목록 튕김 방지)
+                # 예: /news/news_read.naver?article_id=000123&office_id=011...
+                final_link = "https://n.news.naver.com/mnews/article/"
+                
+                import re
+                office_id = re.search(r'office_id=(\d+)', link)
+                article_id = re.search(r'article_id=(\d+)', link)
+                
+                if office_id and article_id:
+                    # 네이버 모바일 통합 뉴스 주소로 변환
+                    direct_link = f"{final_link}{office_id.group(1)}/{article_id.group(1)}"
+                    news_results.append(f"{idx}. {title}\n🔗 {direct_link}")
+                else:
+                    # 추출 실패 시 기본 링크라도 제공
+                    news_results.append(f"{idx}. {title}\n🔗 https://finance.naver.com{link}")
             
         return "\n\n".join(news_results)
     
@@ -45,11 +55,7 @@ def send_telegram(text):
     kst_now = datetime.utcnow() + timedelta(hours=9)
     today_str = kst_now.strftime("%Y년 %m월 %d일")
     
-    # 텍스트가 비어있으면 전송 안 함
-    if not text or "수집하지 못했습니다" in text:
-        message = f"📢 {today_str} 알림\n\n현재 뉴스 수집에 문제가 발생했습니다."
-    else:
-        message = f"📢 {today_str} 아침 경제 브리핑\n\n{text}"
+    message = f"📢 {today_str} 아침 경제 브리핑\n\n{text}"
     
     send_url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {
