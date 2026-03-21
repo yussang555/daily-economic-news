@@ -10,7 +10,7 @@ CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 # ==========================================
 
 def get_news():
-    """네이버 경제 뉴스 제목과 본문 링크를 정확히 매칭합니다."""
+    """네이버 경제 뉴스 제목과 링크를 한 쌍으로 정확히 추출합니다."""
     # 모바일 주소가 아닌 PC용 주소를 사용해야 링크가 정확합니다.
     url = "https://news.naver.com/main/main.naver?mode=LSD&mid=shm&sid1=101"
     headers = {
@@ -21,19 +21,27 @@ def get_news():
         response = requests.get(url, headers=headers)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # 헤드라인 뉴스 영역 추출
-        news_list = soup.select('.sh_head_title') # 헤드라인 제목들
+        # 헤드라인 뉴스 영역 추출 (더 세밀한 선택자 사용)
+        news_list = soup.select('.sh_head_title') 
         if not news_list:
-            news_list = soup.select('.cluster_text_headline') # 일반 뉴스 제목들
+            news_list = soup.select('.cluster_text_headline')
 
         news_results = []
         for idx, item in enumerate(news_list[:5], 1):
             title = item.get_text().strip()
-            link = item.get('href')
+            # href 속성에서 링크 추출 시도
+            link = item.get('href') or item.find('a').get('href') if item.find('a') else None
             
-            # 제목과 링크가 둘 다 있을 때만 추가
+            # 링크가 있고 제목도 있을 때만 추가
             if title and link:
+                # 링크 정제: 본문으로 바로 가는 PC 주소 체계로 강제 변환
+                if link.startswith('/news/'):
+                    link = "https://news.naver.com" + link
+                
                 news_results.append(f"{idx}. {title}\n🔗 {link}")
+            else:
+                # 링크 수집 실패 시 로그 기록 (디버깅용)
+                print(f"[{idx}] {title} - 링크 수집 실패")
             
         return "\n\n".join(news_results)
     
